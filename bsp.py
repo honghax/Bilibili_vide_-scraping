@@ -17,7 +17,7 @@ except ImportError:
     _HAS_FFMPEG_PY = False
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.environ.get("BILI_BASE_DIR") or os.path.dirname(os.path.abspath(__file__))
 
 FFMPEG_PATH = os.environ.get('FFMPEG_PATH', '') or shutil.which('ffmpeg') or ''
 
@@ -246,19 +246,43 @@ def extract_title(html, playinfo):
 def download_stream(url, path, headers=None, cookies=None):
     headers = headers or {}
     cookies = cookies or {}
-    logger.info(f"开始下载 -> {os.path.basename(path)}")
+    fname = os.path.basename(path)
+    logger.info(f"开始下载 -> {fname}")
     with requests.get(url, headers=headers, cookies=cookies, stream=True, timeout=60) as r:
         r.raise_for_status()
         total = int(r.headers.get('content-length', 0))
         downloaded = 0
+        bar_width = 40
+        phase = 0
         with open(path, 'wb') as f:
             for chunk in r.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
                     if total:
-                        pct = downloaded / total * 100
-                        sys.stdout.write(f"\r  进度: {pct:.1f}% ({downloaded//1024}/{total//1024} KB)")
+                        pct = downloaded / total
+                        filled = int(bar_width * pct)
+                        phase = (phase + 1) % 6
+                        if filled < bar_width:
+                            arrow = '>' if phase < 3 else '»' if phase < 5 else '➤'
+                            bar = '=' * filled + arrow + ' ' * (bar_width - filled - 1)
+                        else:
+                            bar = '=' * bar_width
+                        cur_kb = downloaded // 1024
+                        total_kb = total // 1024
+                        if total_kb >= 1024:
+                            cur_mb = downloaded / 1024 / 1024
+                            total_mb = total / 1024 / 1024
+                            size_str = f"{cur_mb:.1f}/{total_mb:.1f} MB"
+                        else:
+                            size_str = f"{cur_kb}/{total_kb} KB"
+                        sys.stdout.write(f"\r  [{bar}] {pct*100:5.1f}%  {size_str}")
+                        sys.stdout.flush()
+                    else:
+                        phase = (phase + 1) % 8
+                        spinner = '|/—\\'[phase % 4]
+                        cur_kb = downloaded // 1024
+                        sys.stdout.write(f"\r  {spinner} 下载中... {cur_kb} KB")
                         sys.stdout.flush()
     print()
     logger.info(f"下载完成: {path}")
