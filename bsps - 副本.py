@@ -34,7 +34,7 @@ except ImportError:
 # ============================================================================
 
 # 脚本所在目录的绝对路径
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.environ.get("BILI_BASE_DIR") or os.path.dirname(os.path.abspath(__file__))
 
 # FFmpeg 可执行文件路径：优先从环境变量读取，其次从系统 PATH 查找
 FFMPEG_PATH = os.environ.get('FFMPEG_PATH', '') or shutil.which('ffmpeg') or ''
