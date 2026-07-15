@@ -25,6 +25,19 @@ A pure Python toolkit for downloading videos and bangumi (anime/series) from Bil
 
 ## Features
 
+### Search & Batch Download Spider (bsps.py / bsps - 副本.py)
+
+- ✅ Keyword-based video search, auto-extracts BV IDs
+- ✅ **Multi-process concurrent download**, 2 videos per process
+- ✅ Highest quality by default, auto-picks best codec
+- ✅ Filename includes publish date: `[YYYY-MM-DD] Title.mp4`
+- ✅ Auto FFmpeg merge, output to `output/` directory
+- ✅ Per-video logs with process ID prefix
+- ✅ Detailed summary at the end (success/fail list, total time)
+- ✅ Request interval delay, simulates real user behavior
+- ✅ Dual log output: console + file
+- ✅ Both minimal and fully-commented versions available
+
 ### Bangumi Spider (bsp.py / bilibili_pgc_spider - 副本.py)
 
 - ✅ Supports both SS (season) and EP (episode) URLs
@@ -55,6 +68,8 @@ A pure Python toolkit for downloading videos and bangumi (anime/series) from Bil
 
 | Filename | Type | Description |
 |----------|------|-------------|
+| `bsps.py` | Search & batch download (minimal) | Keyword search + multi-process batch download |
+| `bsps - 副本.py` | Search & batch download (commented) | Detailed comments, for learning code logic |
 | `bsp.py` | Bangumi spider (minimal) | No extra comments, compact code, for daily use |
 | `bilibili_pgc_spider - 副本.py` | Bangumi spider (commented) | Detailed comments on every function, for learning |
 | `bspv.py` | Regular video spider | BV ID based video download tool |
@@ -105,6 +120,14 @@ SESSDATA=your_SESSDATA; bili_jct=your_bili_jct; DedeUserID=your_UID
 > Without a cookie, only low-quality anonymous resources can be downloaded.
 
 ### 3. Run the Script
+
+**Search & batch download (recommended):**
+```bash
+python bsps.py
+# Enter search keyword
+# Enter number of videos to download (default 5)
+# Auto search → multi-process download → auto merge
+```
 
 **Download bangumi:**
 ```bash
@@ -192,6 +215,30 @@ The script automatically chooses the available merge method:
 
 ## Usage
 
+### Search & Batch Download (bsps.py)
+
+**Search videos by keyword, download in parallel with multi-processing.**
+
+**Interactive flow:**
+1. Enter search keyword
+2. Enter number of videos to download (default 5)
+3. Auto-read `cookie.txt` (prompts for input if not found)
+4. Auto-validate cookie
+5. Search videos and extract BV IDs
+6. Distribute tasks with 2 videos per process, start concurrent download
+7. Each video uses highest quality by default, auto-download video + audio
+8. FFmpeg auto-merge to MP4, filename includes publish date
+9. Detailed summary at the end (success/fail list, total time)
+
+**Multi-process allocation rules:**
+
+| Download Count | Processes | Tasks per Process |
+|----------------|-----------|-------------------|
+| 1~2 | 1 | 2 / 1 |
+| 3~4 | 2 | 2 / 2 |
+| 5~6 | 3 | 2 / 2 / 2 |
+| ... | ... | ... |
+
 ### Bangumi Spider (bsp.py)
 
 **Supported URL formats:**
@@ -223,6 +270,20 @@ The script automatically chooses the available merge method:
 ---
 
 ## Output Structure
+
+### Search & Batch Download Spider
+
+```
+output/
+├── video/                                          # Video segments (auto-deleted after merge)
+│   ├── [2024-01-15] Video Title 1.m4s
+│   └── [2024-01-16] Video Title 2.m4s
+├── audio/                                          # Audio segments (auto-deleted after merge)
+│   ├── [2024-01-15] Video Title 1.m4a
+│   └── [2024-01-16] Video Title 2.m4a
+├── [2024-01-15] Video Title 1.mp4                   # Merged complete video
+└── [2024-01-16] Video Title 2.mp4                   # Merged complete video
+```
 
 ### Bangumi Spider
 
@@ -299,7 +360,13 @@ A: Resumable downloads are not currently supported. You'll need to re-download. 
 
 ### Q: Does it support batch downloading?
 
-A: Batch downloading is not currently supported — only single episode / single video downloads.
+A: Yes! Use the `bsps.py` search & batch download script:
+- Keyword-based video search
+- Multi-process concurrent download (2 videos per process)
+- Auto-merge, filenames include publish date
+- See [Search & Batch Download (bsps.py)](#search--batch-download-bspy)
+
+The bangumi and single-video scripts (bsp.py / bspv.py) only support single episode/video downloads.
 
 ### Q: Does it support downloading danmaku (bullet comments) or subtitles?
 
@@ -311,19 +378,32 @@ A: Identical functionality, only difference is the amount of comments:
 - `bsp.py`: minimal version, no extra comments, for daily use
 - `bilibili_pgc_spider - 副本.py`: fully commented version, for learning the code
 
+### Q: What's the difference between the two bsps scripts?
+
+A: Identical functionality, only difference is the amount of comments:
+- `bsps.py`: minimal version, no extra comments, for daily use
+- `bsps - 副本.py`: fully commented version, for learning the code
+
+### Q: Why are there request delays in search download?
+
+A: To simulate real user behavior and reduce the risk of triggering Bilibili's anti-crawler mechanisms. There's a 1-2 second delay between each video — slightly slower but more stable.
+
 ---
 
 ## Technical Details
 
 ### Core Principles
 
-1. **Page request**: Simulate browser request to video/bangumi page
-2. **Data extraction**: Extract `window.__playinfo__` or `playurlSSRData` JSON from HTML
-3. **JSON parsing**: Use bracket depth matching method to accurately extract nested JSON
-4. **Data normalization**: Unify different data structures between PGC bangumi and regular videos
-5. **Quality selection**: Group and deduplicate by quality ID, sort from high to low
-6. **Streaming download**: `stream=True` for chunked download with real-time progress
-7. **Audio/video merge**: Call FFmpeg for lossless merge (`-c copy`)
+1. **Search parsing**: Request search page, extract BV IDs with regex and deduplicate
+2. **Page request**: Simulate browser request to video/bangumi page
+3. **Data extraction**: Extract `window.__playinfo__` or `playurlSSRData` JSON from HTML
+4. **JSON parsing**: Use bracket depth matching method to accurately extract nested JSON
+5. **Data normalization**: Unify different data structures between PGC bangumi and regular videos
+6. **Quality selection**: Group and deduplicate by quality ID, sort from high to low
+7. **Publish date**: Extract pubdate/ctime from playinfo, format as date string
+8. **Streaming download**: `stream=True` for chunked download with real-time progress
+9. **Audio/video merge**: Call FFmpeg for lossless merge (`-c copy`)
+10. **Multi-process concurrency**: `multiprocessing.Pool` pool, 2 tasks per process
 
 ### Dependencies
 
@@ -333,6 +413,8 @@ A: Identical functionality, only difference is the amount of comments:
 - `logging` — Log recording
 - `subprocess` / `ffmpeg-python` — FFmpeg invocation
 - `shutil` — Executable path lookup
+- `multiprocessing` — Multi-process concurrency
+- `datetime` — Date and time handling
 
 ---
 
