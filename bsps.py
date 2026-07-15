@@ -26,7 +26,13 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 FFMPEG_PATH = os.environ.get('FFMPEG_PATH', '') or shutil.which('ffmpeg') or ''
 
-LOG_PATH = os.path.join(BASE_DIR, "bilibili_spider.txt")
+LOG_DIR = os.path.join(BASE_DIR, "log")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+_script_name = os.path.splitext(os.path.basename(__file__))[0]
+LOG_PATH = os.path.join(LOG_DIR, f"{_timestamp}_{_script_name}.log")
+RESULT_PATH = os.path.join(LOG_DIR, f"{_timestamp}_{_script_name}_result.txt")
 
 MAX_CHUNK_THREADS = 8
 MIN_CHUNK_SIZE = 1 * 1024 * 1024
@@ -44,7 +50,7 @@ def _setup_logger():
     ch = logging.StreamHandler()
     ch.setFormatter(fmt)
     lg.addHandler(ch)
-    fh = logging.FileHandler(LOG_PATH, mode="a", encoding="utf-8")
+    fh = logging.FileHandler(LOG_PATH, mode="w", encoding="utf-8")
     fh.setFormatter(fmt)
     lg.addHandler(fh)
     return lg
@@ -667,9 +673,25 @@ def main():
 
     log_msg(f"输出目录: {out_dir}")
 
+    with open(RESULT_PATH, "w", encoding="utf-8") as f:
+        f.write("===== 下载结果 =====\n")
+        f.write(f"总耗时: {elapsed:.1f} 秒\n")
+        f.write(f"成功: {len(success_list)} 个\n")
+        f.write(f"失败: {len(fail_list)} 个\n")
+        f.write(f"输出目录: {out_dir}\n\n")
+        if success_list:
+            f.write("===== 成功列表 =====\n")
+            for r in success_list:
+                f.write(f"  ✓ {r.get('bv', '?')} - {r.get('title', '?')} [{r.get('quality', '?')}]\n")
+            f.write("\n")
+        if fail_list:
+            f.write("===== 失败列表 =====\n")
+            for r in fail_list:
+                f.write(f"  ✗ {r.get('bv', '?')} - {r.get('error', '未知错误')}\n")
+    log_msg(f"结果已保存到：{RESULT_PATH}")
+
 
 if __name__ == '__main__':
     multiprocessing.freeze_support()
     main()
     input('按回车退出...')
-

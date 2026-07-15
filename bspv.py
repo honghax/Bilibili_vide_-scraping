@@ -4,10 +4,19 @@ import re
 import json
 import logging
 import os
+import subprocess
+import sys
+from datetime import datetime
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_PATH = os.path.join(BASE_DIR, "bilibili_spider.txt")
+LOG_DIR = os.path.join(BASE_DIR, "log")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+_script_name = os.path.splitext(os.path.basename(__file__))[0]
+LOG_PATH = os.path.join(LOG_DIR, f"{_timestamp}_{_script_name}.log")
+RESULT_PATH = os.path.join(LOG_DIR, f"{_timestamp}_{_script_name}_result.txt")
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -19,7 +28,7 @@ console_handler.setFormatter(log_format)
 logger.addHandler(console_handler)
 
 
-file_handler = logging.FileHandler(LOG_PATH, mode="a", encoding="utf-8")
+file_handler = logging.FileHandler(LOG_PATH, mode="w", encoding="utf-8")
 file_handler.setFormatter(log_format)
 logger.addHandler(file_handler)
 
@@ -56,6 +65,30 @@ def sanitize_filename(name, fallback="file"):
     safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', '', safe_name)
     safe_name = re.sub(r'[.\s]+$', '', safe_name)
     return safe_name or fallback
+
+
+def download_with_progress(url, save_path, headers, cookies, prefix=""):
+    logger.info(f"{prefix}开始下载 -> {os.path.basename(save_path)}")
+    with requests.get(url, headers=headers, cookies=cookies, stream=True, timeout=60) as r:
+        r.raise_for_status()
+        total_size = int(r.headers.get('content-length', 0))
+        downloaded = 0
+        last_print = -1
+        with open(save_path, 'wb') as f:
+            for chunk in r.iter_content(chunk_size=65536):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size:
+                        cur_mb = downloaded // 1024 // 1024
+                        if cur_mb != last_print:
+                            last_print = cur_mb
+                            pct = downloaded / total_size * 100
+                            total_mb = total_size // 1024 // 1024
+                            sys.stdout.write(f"\r  {prefix}进度: {pct:.1f}% ({cur_mb}/{total_mb} MB)")
+                            sys.stdout.flush()
+    print()
+    logger.info(f"{prefix}下载完成：{save_path} ({downloaded//1024//1024} MB)")
 
 
 def validate_cookie(cookie_value):
@@ -131,49 +164,88 @@ def main():
         audio_url = best_audio["baseUrl"]
 
      
-        video_dir = os.path.join(BASE_DIR, "video")
-        audio_dir = os.path.join(BASE_DIR, "audio")
+        video_dir = os.path.join(BASE_DIR, "output", "video")
+        audio_dir = os.path.join(BASE_DIR, "output", "audio")
+        output_dir = os.path.join(BASE_DIR, "output")
+        os.makedirs(output_dir, exist_ok=True)
 
         if not os.path.exists(video_dir):
-            os.mkdir(video_dir)
+            os.makedirs(video_dir)
             logger.info(f"video文件夹不存在，已自动创建：{video_dir}")
 
         if not os.path.exists(audio_dir):
-            os.mkdir(audio_dir)
+            os.makedirs(audio_dir)
             logger.info(f"audio文件夹不存在，已自动创建：{audio_dir}")
 
         safe_title = sanitize_filename(title)
 
-        Video_save = input("是否保存视频文件？(y/n): ").strip().lower()
-        logger.info(f"用户选择保存视频文件：{Video_save}")
-        if Video_save == 'y':
-         logger.info("开始下载视频文件...")
-         video_content = requests.get(url=video_url, headers=headers, cookies=cookies, timeout=30).content
-         video_save_path = os.path.join(video_dir, safe_title + ".mp4")
-         with open(video_save_path, mode='wb') as v:
-            v.write(video_content)
-         logger.info(f"视频保存完成：{video_save_path}")
-        
-        Audio_save = input("是否保存音频文件？(y/n): ").strip().lower()
-        logger.info(f"用户选择保存音频文件：{Audio_save}")
-        if Audio_save == 'y':
-         logger.info("开始下载音频文件...")
-         audio_content = requests.get(url=audio_url, headers=headers, cookies=cookies, timeout=30).content
-         audio_save_path = os.path.join(audio_dir, safe_title + ".mp3")
-         with open(audio_save_path, mode='wb') as a:
-            a.write(audio_content)
-         logger.info(f"音频保存完成：{audio_save_path}")
+        video_save_path = os.path.join(video_dir, safe_title + ".mp4")
+        download_with_progress(video_url, video_save_path, headers, cookies, "[视频] ")
+
+        audio_save_path = os.path.join(audio_dir, safe_title + ".mp3")
+        download_with_progress(audio_url, audio_save_path, headers, cookies, "[音频] ")
+
+        logger.info("开始使用 ffmpeg 合并音视频...")
+        output_path = os.path.join(output_dir, safe_title + ".mp4")
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", video_save_path,
+            "-i", audio_save_path,
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-strict", "experimental",
+            output_path
+        ]
+        result = subprocess.run(cmd, capture_output=True)
+        if result.returncode == 0:
+            logger.info(f"音视频合并完成：{output_path}")
+        else:
+            err_msg = result.stderr.decode('utf-8', errors='replace') if result.stderr else ''
+            logger.error(f"ffmpeg 合并失败：{err_msg}")
 
         logger.info("===== B站爬虫任务全部执行完毕 =====\n")
 
+        with open(RESULT_PATH, "w", encoding="utf-8") as f:
+            f.write("===== 下载结果 =====\n")
+            f.write(f"状态: 成功\n")
+            f.write(f"BV号: {bv}\n")
+            f.write(f"标题: {title}\n")
+            f.write(f"画质: {target_video['id']} ({target_video['width']}×{target_video['height']})\n")
+            f.write(f"输出文件: {output_path}\n")
+        logger.info(f"结果已保存到：{RESULT_PATH}")
+
     except requests.exceptions.RequestException as e:
         logger.error(f"网络请求异常：{e}", exc_info=False)
+        with open(RESULT_PATH, "w", encoding="utf-8") as f:
+            f.write("===== 下载结果 =====\n")
+            f.write(f"状态: 失败\n")
+            f.write(f"BV号: {bv}\n")
+            f.write(f"错误类型: 网络请求异常\n")
+            f.write(f"错误信息: {e}\n")
     except IndexError:
         logger.error("正则匹配失败，页面结构改变，无法提取标题/播放链接")
+        with open(RESULT_PATH, "w", encoding="utf-8") as f:
+            f.write("===== 下载结果 =====\n")
+            f.write(f"状态: 失败\n")
+            f.write(f"BV号: {bv}\n")
+            f.write(f"错误类型: 正则匹配失败\n")
+            f.write(f"错误信息: 页面结构改变，无法提取标题/播放链接\n")
     except KeyError as e:
         logger.error(f"JSON数据缺少关键字段：{e}，播放信息解析失败")
+        with open(RESULT_PATH, "w", encoding="utf-8") as f:
+            f.write("===== 下载结果 =====\n")
+            f.write(f"状态: 失败\n")
+            f.write(f"BV号: {bv}\n")
+            f.write(f"错误类型: JSON数据缺少关键字段\n")
+            f.write(f"错误信息: {e}\n")
     except Exception as e:
         logger.error(f"程序未知错误：{e}", exc_info=False)
+        with open(RESULT_PATH, "w", encoding="utf-8") as f:
+            f.write("===== 下载结果 =====\n")
+            f.write(f"状态: 失败\n")
+            f.write(f"BV号: {bv}\n")
+            f.write(f"错误类型: 程序未知错误\n")
+            f.write(f"错误信息: {e}\n")
 
 if __name__ == "__main__":
     main()

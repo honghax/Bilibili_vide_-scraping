@@ -7,6 +7,7 @@ import requests
 import logging
 import subprocess
 from urllib.parse import urlparse
+from datetime import datetime
 
 try:
     import ffmpeg
@@ -20,7 +21,13 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 FFMPEG_PATH = os.environ.get('FFMPEG_PATH', '') or shutil.which('ffmpeg') or ''
 
-LOG_PATH = os.path.join(BASE_DIR, "bilibili_spider.txt")
+LOG_DIR = os.path.join(BASE_DIR, "log")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+_script_name = os.path.splitext(os.path.basename(__file__))[0]
+LOG_PATH = os.path.join(LOG_DIR, f"{_timestamp}_{_script_name}.log")
+RESULT_PATH = os.path.join(LOG_DIR, f"{_timestamp}_{_script_name}_result.txt")
 
 logger = logging.getLogger("bili_spider")
 logger.setLevel(logging.INFO)
@@ -30,7 +37,7 @@ ch = logging.StreamHandler()
 ch.setFormatter(fmt)
 logger.addHandler(ch)
 
-fh = logging.FileHandler(LOG_PATH, mode="a", encoding="utf-8")
+fh = logging.FileHandler(LOG_PATH, mode="w", encoding="utf-8")
 fh.setFormatter(fmt)
 logger.addHandler(fh)
 
@@ -313,7 +320,7 @@ def main():
     if not cookie_string:
         cookie_string = input('请粘贴 cookie（回车跳过）: ').strip()
 
-    out_dir = os.path.join(BASE_DIR, 'downloads')
+    out_dir = os.path.join(BASE_DIR, 'output')
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
@@ -387,6 +394,23 @@ def main():
             logger.info('跳过合并，视频在 video/ 目录，音频在 audio/ 目录')
     elif video_path:
         logger.info('完成: ' + video_path)
+
+    with open(RESULT_PATH, "w", encoding="utf-8") as f:
+        f.write("===== 下载结果 =====\n")
+        f.write(f"标题: {title}\n")
+        f.write(f"画质: {pick['quality']}\n")
+        if video_path:
+            f.write(f"视频文件: {video_path}\n")
+        if audio_path:
+            f.write(f"音频文件: {audio_path}\n")
+        if video_path and audio_path and os.path.exists(merged):
+            f.write(f"合并文件: {merged}\n")
+            f.write("状态: 已合并\n")
+        elif video_path and audio_path:
+            f.write("状态: 未合并\n")
+        elif video_path:
+            f.write("状态: 完成（单视频）\n")
+    logger.info(f"结果已保存到：{RESULT_PATH}")
 
 
 if __name__ == '__main__':
